@@ -1,32 +1,46 @@
-from http.server import BaseHTTPRequestHandler
 import json
 import os
-from openai import OpenAI
+import google.generativeai as genai
 
-def init_openai():
-    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-    return client
+def init_gemini():
+    api_key = os.getenv('GOOGLE_API_KEY')
+    if not api_key:
+        raise Exception("GOOGLE_API_KEY is not set")
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel('gemini-pro')
 
 def handler(event, context):
+    # Handle OPTIONS request for CORS
+    if event.get('httpMethod') == 'OPTIONS':
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'POST, OPTIONS'
+            }
+        }
+
     try:
         # Parse the incoming request body
+        if not event.get('body'):
+            raise Exception("No body in request")
+            
         body = json.loads(event['body'])
         text = body.get('text', '')
         
-        # Initialize OpenAI client
-        client = init_openai()
+        if not text:
+            raise Exception("No text provided")
+        
+        # Initialize Gemini
+        model = init_gemini()
         
         # Make the API call
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that creates mind maps. Convert the following text into a mind map structure."},
-                {"role": "user", "content": text}
-            ]
-        )
+        prompt = f"""You are a helpful assistant that creates mind maps. Convert the following text into a mind map structure:
+
+{text}"""
         
-        # Extract the response
-        result = response.choices[0].message.content
+        response = model.generate_content(prompt)
         
         # Return the response
         return {
@@ -36,15 +50,20 @@ def handler(event, context):
                 'Access-Control-Allow-Headers': 'Content-Type',
                 'Access-Control-Allow-Methods': 'POST, OPTIONS'
             },
-            'body': json.dumps({'result': result})
+            'body': json.dumps({
+                'result': response.text
+            })
         }
         
     except Exception as e:
+        print(f"Error: {str(e)}")  # This will show up in Netlify Function logs
         return {
             'statusCode': 500,
             'headers': {
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Headers': 'Content-Type'
             },
-            'body': json.dumps({'error': str(e)})
+            'body': json.dumps({
+                'error': str(e)
+            })
         }
